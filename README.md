@@ -1,0 +1,2 @@
+# verification
+NuSMV ATM model
