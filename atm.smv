@@ -4,8 +4,6 @@ VAR
   client2: client (50, 15);
   client3: client (0, 2);
 
-  availableMoney: 0..50;
-
 -- Клиент не может снять больше, чем у него есть на счету
 LTLSPEC !F (client3.state = gotMoney);
 -- Клиент не может снять больше 10 рублей
@@ -22,11 +20,9 @@ VAR
   input: {correct_pass, wrong_pass};
   state: {wait, blocked, verifiedPass, gotMoney, invalidRequest};
   timer: -1..10;
-  availableMoney: 0..2;
 ASSIGN
   init (state) := wait;
   init (timer) := -1;
-  init (availableMoney) := 2;
   init (failed_auth_attempts) := 0;
 
   next(state) :=
@@ -52,11 +48,6 @@ ASSIGN
     state = blocked & timer > 0 : timer - 1;
     state != blocked : - 1;
     TRUE : timer;
-  esac;
-
-  next(availableMoney) := case
-      state = verifiedPass & moneyAmount >= moneyRequest & moneyRequest <= 10 & moneyRequest <= availableMoney: availableMoney - moneyRequest;
-      TRUE : availableMoney;
   esac;
 
 -- Заблокированный клиент не может войти в основное меню
