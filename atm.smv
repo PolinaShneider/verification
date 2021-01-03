@@ -1,0 +1,67 @@
+MODULE main
+VAR
+  client1: client (1000, 5);
+  client2: client (50, 15);
+  client3: client (0, 2);
+
+  availableMoney: 0..50;
+
+-- Клиент не может снять больше, чем у него есть на счету
+LTLSPEC !F (client3.state = gotMoney);
+-- Клиент не может снять больше 10 рублей
+LTLSPEC !F (client2.state = gotMoney);
+-- Клиент, которому не выдали деньги,  в конце концов их получит.
+-- LTLSPEC F (client2.state = wait -> client1.state = gotMoney);
+-- Заблокированный клиент в конце концов сможет войти в систему
+LTLSPEC G ((client2.state = blocked -> F client2.state = verifiedPass));
+
+MODULE client(moneyAmount, moneyRequest)
+VAR
+  -- Traffic lights can be Red, Yellow and Green.
+  failed_auth_attempts   : 0..3;
+  input: {correct_pass, wrong_pass};
+  state: {wait, blocked, verifiedPass, gotMoney, invalidRequest};
+  timer: -1..10;
+  availableMoney: 0..2;
+ASSIGN
+  init (state) := wait;
+  init (timer) := -1;
+  init (availableMoney) := 2;
+  init (failed_auth_attempts) := 0;
+
+  next(state) :=
+  case
+      state = blocked & timer = 0 : wait;
+      state = wait | timer = 0 & input = correct_pass : verifiedPass;
+      state = wait & input = wrong_pass & failed_auth_attempts = 3 : blocked;
+
+      state = verifiedPass & moneyAmount >= moneyRequest & moneyRequest <= 10 : gotMoney;
+      state = verifiedPass & moneyAmount < moneyRequest  : invalidRequest;
+      state = invalidRequest : wait;
+      TRUE : state;
+  esac;
+
+  next(failed_auth_attempts) := case
+    state = wait & input = wrong_pass & failed_auth_attempts < 3: failed_auth_attempts + 1;
+    timer = 0 : 0;
+    TRUE : failed_auth_attempts;
+  esac;
+
+  next(timer) := case
+    state = blocked & timer = - 1 : 10;
+    state = blocked & timer > 0 : timer - 1;
+    state != blocked : - 1;
+    TRUE : timer;
+  esac;
+
+  next(availableMoney) := case
+      state = verifiedPass & moneyAmount >= moneyRequest & moneyRequest <= 10 & moneyRequest <= availableMoney: availableMoney - moneyRequest;
+      TRUE : availableMoney;
+  esac;
+
+-- Заблокированный клиент не может войти в основное меню
+-- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
+-- Заблокированный клиент в конце концов сможет войти в систему
+-- Клиент не может снять больше, чем у него есть на счету
+-- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID.
+-- Клиент, которому не выдали деньги,  в конце концов их получит.
