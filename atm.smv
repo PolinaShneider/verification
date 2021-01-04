@@ -31,7 +31,7 @@ ASSIGN
   next(state) :=
   case
       state = blocked & timer = 0 : wait;
-      (state = wait | timer = 0) & input = correct_pass : verifiedPass;
+      (state = wait | state = blocked & timer = 0) & input = correct_pass : verifiedPass;
       state = wait & input = wrong_pass & failed_auth_attempts = 3 : blocked;
 
       state = verifiedPass & moneyAmount >= moneyRequest & moneyRequest <= 10 : gotMoney;
