@@ -1,15 +1,20 @@
 MODULE main
 VAR
-  client1: client (1000, 5);
-  client2: client (50, 15);
-  client3: client (0, 2);
+  money: 0..100;
+  moneyRequestsApproved: array 0..2 of boolean;
+  client1: client (0, 1000, 5, moneyRequestsApproved);
+  client2: client (1, 50, 15, moneyRequestsApproved);
+  client3: client (2, 0, 2, moneyRequestsApproved);
+  terminal1: terminal(client1, moneyRequestsApproved, money);
+ASSIGN
+  init (money) := 0;
 
 -- Клиент не может снять больше, чем у него есть на счету
-LTLSPEC F !(client3.state = gotMoney);
+LTLSPEC F !(client3.state = validRequest);
 -- Клиент не может снять больше 10 рублей
-LTLSPEC F !(client2.state = gotMoney);
+LTLSPEC F !(client2.state = validRequest);
 -- Клиент, которому не выдали деньги,  в конце концов их получит.
--- LTLSPEC F (client2.state = wait -> client1.state = gotMoney);
+LTLSPEC G (client1.state = validRequest -> F client1.state = gotMoney);
 -- Заблокированный клиент в конце концов сможет войти в систему
 LTLSPEC F ((client2.state = blocked -> F client2.state = verifiedPass));
 -- Заблокированный клиент не может войти в основное меню
@@ -17,11 +22,25 @@ LTLSPEC F !(client2.state = verifiedPass & client2.timer != -1);
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
 LTLSPEC G (client2.state = wait & client2.input = wrong_pass -> X (client2.state != verifiedPass));
 
-MODULE client(moneyAmount, moneyRequest)
+MODULE terminal(client, moneyRequestsApproved, moneyAvailable)
+ASSIGN
+    next(moneyRequestsApproved[client.id]) :=
+          case
+              client.state = validRequest & moneyAvailable >= client.moneyRequest : TRUE;
+              TRUE : moneyRequestsApproved[client.id];
+          esac;
+
+    next(moneyAvailable) :=
+          case
+              client.state = validRequest & moneyAvailable >= client.moneyRequest : moneyAvailable - client.moneyRequest;
+              TRUE : moneyAvailable;
+          esac;
+
+MODULE client(id, moneyAmount, moneyRequest, moneyRequestsApproved)
 VAR
   failed_auth_attempts   : 0..3;
   input: {correct_pass, wrong_pass};
-  state: {wait, blocked, verifiedPass, gotMoney, invalidRequest};
+  state: {wait, blocked, verifiedPass, gotMoney, invalidRequest, validRequest};
   timer: -1..10;
 ASSIGN
   init (state) := wait;
@@ -34,17 +53,18 @@ ASSIGN
       (state = wait | state = blocked & timer = 0) & input = correct_pass : verifiedPass;
       state = wait & input = wrong_pass & failed_auth_attempts = 3 : blocked;
 
-      state = verifiedPass & moneyAmount >= moneyRequest & moneyRequest <= 10 : gotMoney;
-      state = verifiedPass & moneyAmount < moneyRequest  : invalidRequest;
-      state = invalidRequest : wait;
+      state = verifiedPass & (moneyAmount >= moneyRequest & moneyRequest <= 10) : validRequest;
+      state = verifiedPass & (moneyAmount < moneyRequest | moneyRequest > 10)  : invalidRequest;
+      state = validRequest & moneyRequestsApproved[id] = TRUE : gotMoney;
+      state = validRequest & moneyRequestsApproved[id] = FALSE : state;
       TRUE : state;
   esac;
 
   next(failed_auth_attempts) := case
-    state = wait & input = wrong_pass & failed_auth_attempts < 3: failed_auth_attempts + 1;
-    timer = 0 : 0;
-    TRUE : failed_auth_attempts;
-  esac;
+      state = wait & input = wrong_pass & failed_auth_attempts < 3: failed_auth_attempts + 1;
+      timer = 0 : 0;
+      TRUE : failed_auth_attempts;
+    esac;
 
   next(timer) := case
     state = blocked & timer = - 1 : 10;
