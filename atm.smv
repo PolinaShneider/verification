@@ -1,13 +1,31 @@
 MODULE main
 VAR
-  money: 0..100;
+  money: 0..1000;
   moneyRequestsApproved: array 0..2 of boolean;
   client1: client (0, 1000, 5, moneyRequestsApproved);
   client2: client (1, 50, 15, moneyRequestsApproved);
   client3: client (2, 0, 2, moneyRequestsApproved);
   terminal1: terminal(client1, moneyRequestsApproved, money);
+  terminal2: terminal(client2, moneyRequestsApproved, money);
+  timer: 0..20;
 ASSIGN
   init (money) := 0;
+  init (timer) := 20;
+
+  next(money) :=
+      case
+        timer = 0 & money < 970 : money + 10;
+        terminal1.client.state = validRequest & money >= terminal1.client.moneyRequest : money - terminal1.client.moneyRequest;
+        terminal2.client.state = validRequest & money >= terminal2.client.moneyRequest : money - terminal2.client.moneyRequest;
+        TRUE : money;
+      esac;
+
+    next(timer) :=
+      case
+        timer > 0 : timer - 1;
+        timer = 0 : 20;
+        TRUE : timer;
+      esac;
 
 -- Клиент не может снять больше, чем у него есть на счету
 LTLSPEC F !(client3.state = validRequest);
@@ -28,12 +46,6 @@ ASSIGN
           case
               client.state = validRequest & moneyAvailable >= client.moneyRequest : TRUE;
               TRUE : moneyRequestsApproved[client.id];
-          esac;
-
-    next(moneyAvailable) :=
-          case
-              client.state = validRequest & moneyAvailable >= client.moneyRequest : moneyAvailable - client.moneyRequest;
-              TRUE : moneyAvailable;
           esac;
 
 MODULE client(id, moneyAmount, moneyRequest, moneyRequestsApproved)
