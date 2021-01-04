@@ -12,6 +12,10 @@ LTLSPEC !F (client2.state = gotMoney);
 -- LTLSPEC F (client2.state = wait -> client1.state = gotMoney);
 -- Заблокированный клиент в конце концов сможет войти в систему
 LTLSPEC G ((client2.state = blocked -> F client2.state = verifiedPass));
+-- Заблокированный клиент не может войти в основное меню
+LTLSPEC !F (client2.state = verifiedPass & client2.timer != -1);
+-- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
+LTLSPEC G ((client2.state = wait & client2.input = wrong_pass -> client2.state = verifiedPass));
 
 MODULE client(moneyAmount, moneyRequest)
 VAR
@@ -49,10 +53,3 @@ ASSIGN
     state != blocked : - 1;
     TRUE : timer;
   esac;
-
--- Заблокированный клиент не может войти в основное меню
--- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
--- Заблокированный клиент в конце концов сможет войти в систему
--- Клиент не может снять больше, чем у него есть на счету
--- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID.
--- Клиент, которому не выдали деньги,  в конце концов их получит.
