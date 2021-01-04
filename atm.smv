@@ -5,21 +5,20 @@ VAR
   client3: client (0, 2);
 
 -- Клиент не может снять больше, чем у него есть на счету
-LTLSPEC !F (client3.state = gotMoney);
+LTLSPEC F !(client3.state = gotMoney);
 -- Клиент не может снять больше 10 рублей
-LTLSPEC !F (client2.state = gotMoney);
+LTLSPEC F !(client2.state = gotMoney);
 -- Клиент, которому не выдали деньги,  в конце концов их получит.
 -- LTLSPEC F (client2.state = wait -> client1.state = gotMoney);
 -- Заблокированный клиент в конце концов сможет войти в систему
-LTLSPEC G ((client2.state = blocked -> F client2.state = verifiedPass));
+LTLSPEC F ((client2.state = blocked -> F client2.state = verifiedPass));
 -- Заблокированный клиент не может войти в основное меню
-LTLSPEC !F (client2.state = verifiedPass & client2.timer != -1);
+LTLSPEC F !(client2.state = verifiedPass & client2.timer != -1);
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
-LTLSPEC G ((client2.state = wait & client2.input = wrong_pass -> client2.state = verifiedPass));
+LTLSPEC G (client2.state = wait & client2.input = wrong_pass -> X (client2.state != verifiedPass));
 
 MODULE client(moneyAmount, moneyRequest)
 VAR
-  -- Traffic lights can be Red, Yellow and Green.
   failed_auth_attempts   : 0..3;
   input: {correct_pass, wrong_pass};
   state: {wait, blocked, verifiedPass, gotMoney, invalidRequest};
@@ -32,7 +31,7 @@ ASSIGN
   next(state) :=
   case
       state = blocked & timer = 0 : wait;
-      state = wait | timer = 0 & input = correct_pass : verifiedPass;
+      (state = wait | timer = 0) & input = correct_pass : verifiedPass;
       state = wait & input = wrong_pass & failed_auth_attempts = 3 : blocked;
 
       state = verifiedPass & moneyAmount >= moneyRequest & moneyRequest <= 10 : gotMoney;
