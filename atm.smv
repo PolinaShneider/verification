@@ -1,6 +1,6 @@
 MODULE main
 VAR
-  money: 0..1000;
+  money: 0..50;
   moneyRequestsApproved: array 0..2 of boolean;
   client1: client (0, 1000, 5, moneyRequestsApproved);
   client2: client (1, 50, 15, moneyRequestsApproved);
@@ -14,7 +14,7 @@ ASSIGN
 
   next(money) :=
       case
-        timer = 0 & money < 970 : money + 10;
+        timer = 0 & money < 40 : money + 10;
         terminal1.client.state = validRequest & money >= terminal1.client.moneyRequest : money - terminal1.client.moneyRequest;
         terminal2.client.state = validRequest & money >= terminal2.client.moneyRequest : money - terminal2.client.moneyRequest;
         TRUE : money;
@@ -61,14 +61,14 @@ ASSIGN
 
   next(state) :=
   case
-      state = blocked & timer = 0 : wait;
+      timer <= 0 : wait;
       (state = wait | state = blocked & timer = 0) & input = correct_pass : verifiedPass;
       state = wait & input = wrong_pass & failed_auth_attempts = 3 : blocked;
 
       state = verifiedPass & (moneyAmount >= moneyRequest & moneyRequest <= 10) : validRequest;
       state = verifiedPass & (moneyAmount < moneyRequest | moneyRequest > 10)  : invalidRequest;
       state = validRequest & moneyRequestsApproved[id] = TRUE : gotMoney;
-      state = validRequest & moneyRequestsApproved[id] = FALSE : state;
+      state = validRequest & moneyRequestsApproved[id] = FALSE : blocked;
       TRUE : state;
   esac;
 
@@ -80,7 +80,7 @@ ASSIGN
 
   next(timer) := case
     state = blocked & timer = - 1 : 10;
-    state = blocked & timer > 0 : timer - 1;
+    state = blocked & timer >= 0 : timer - 1;
     state != blocked : - 1;
     TRUE : timer;
   esac;
