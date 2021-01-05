@@ -36,9 +36,9 @@ LTLSPEC G (client1.state = validRequest -> F client1.state = gotMoney);
 -- Заблокированный клиент в конце концов сможет войти в систему
 LTLSPEC F ((client2.state = blocked -> F client2.state = verifiedPass));
 -- Заблокированный клиент не может войти в основное меню
-LTLSPEC G (client2.state = blocked & client2.input = correct_pass & client2.timer > 0 -> X (client2.state != verifiedPass));
+LTLSPEC G (client2.state = blocked & client2.input = correct_pass & client2.timer > 0 -> X !(client2.state = verifiedPass));
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
-LTLSPEC G (client2.state = wait & client2.input = wrong_pass -> X (client2.state != verifiedPass));
+LTLSPEC G (client2.state = wait & client2.input = wrong_pass -> X !(client2.state = verifiedPass));
 
 MODULE terminal(client, moneyRequestsApproved, moneyAvailable)
 ASSIGN
