@@ -28,9 +28,9 @@ ASSIGN
       esac;
 
 -- Клиент не может снять больше, чем у него есть на счету
-LTLSPEC F !(client3.state = validRequest);
+LTLSPEC G !(client3.state = wait -> F client3.state = gotMoney);
 -- Клиент не может снять больше 10 рублей
-LTLSPEC F !(client2.state = validRequest);
+LTLSPEC G !(client3.state = wait -> F client2.state = gotMoney);
 -- Клиент, которому не выдали деньги,  в конце концов их получит.
 LTLSPEC G (client1.state = validRequest -> F client1.state = gotMoney);
 -- Заблокированный клиент в конце концов сможет войти в систему
