@@ -84,17 +84,31 @@ DEFINE
     atm1CashIncrease := 5; -- set id equal 10, then assign any positive value to this line variable - following that spec 6 will come out to 'true' assertion (conversely, leave 0 to have a counterexample for this case)
 
 -- verify model in CTL style --
-SPEC !AG AX (client1.state = suspendedFromLogin -> client1.state = passedLogin)
-SPEC !AG (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> client1.state = passedLogin)
-SPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
-SPEC !AG (client1Balance < client1Demand -> client1.state = receivedCash)
-SPEC !AG (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
-SPEC AG AF (client1.state = encounteredLimit -> client1.state = receivedCash);
+-- Заблокированный клиент не может войти в основное меню
+CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
+-- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
+CTLSPEC A [(client1.state = login & client1.id != client1Id | client1.password != client1Password) U (!(client1.state = passedLogin))]
+-- Заблокированный клиент в конце концов сможет войти в систему
+CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
+-- Клиент не может снять больше, чем у него есть на счету
+CTLSPEC !AG (client1Balance < client1Demand -> client1.state = receivedCash)
+--Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID.
+CTLSPEC !AG (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
+-- Клиент, которому не выдали деньги,  в конце концов их получит.
+CTLSPEC AG (client1.state = encounteredLimit -> AF client1.state = receivedCash);
 
 -- verify model in LTL style --
-LTLSPEC !G X (client1.state = suspendedFromLogin -> client1.state = passedLogin)
-LTLSPEC !G (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> client1.state = passedLogin)
+-- Заблокированный клиент не может войти в основное меню
+LTLSPEC G (client1.state = suspendedFromLogin -> X !(client1.state = passedLogin))
+-- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
+LTLSPEC G (client1.state = login & client1.id != client1Id | client1.password != client1Password) U (!(client1.state = passedLogin))
+-- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль (событие p никогда не наступит до события q)
+LTLSPEC (F(client1.state = login & client1.id = client1Id & client1.password = client1Password) -> (!(client1.state = passedLogin) U (client1.state = login & client1.id = client1Id & client1.password = client1Password)))
+-- Заблокированный клиент в конце концов сможет войти в систему
 LTLSPEC F ((client1.state = suspendedFromLogin) -> (client1.state = passedLogin))
+-- Клиент не может снять больше, чем у него есть на счету
 LTLSPEC !G (client1Balance < client1Demand -> client1.state = receivedCash)
-LTLSPEC !G (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
+--Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID.
+LTLSPEC !G (client1.state = passedLogin xor (client1.state = login | client1.state = failedToLogin))
+-- Клиент, которому не выдали деньги,  в конце концов их получит.
 LTLSPEC G F (client1.state = encounteredLimit -> client1.state = receivedCash)
