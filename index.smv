@@ -112,7 +112,6 @@ DEFINE
     atm1InitialAmount := 10; -- Количество денег в банкомате в начальный момент времени
     atm1CashIncrease := 5; -- Как увеличивается количество денег в банкомате с приездом инкассаторов
 
--- verify model in CTL style --
 -- Заблокированный клиент не может войти в основное меню
 CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
@@ -127,7 +126,6 @@ CTLSPEC !AG (client1.state = passedLogin & (client1.state = login | client1.stat
 -- Клиент, которому не выдали деньги, в конце концов их получит
 CTLSPEC AG ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneReturnLimit) -> AF client1.state = receivedCash);
 
--- verify model in LTL style --
 -- Заблокированный клиент не может войти в основное меню
 LTLSPEC G (client1.state = suspendedFromLogin -> X !(client1.state = passedLogin))
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
