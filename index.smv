@@ -116,7 +116,7 @@ DEFINE
 CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
 CTLSPEC AG (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> !(client1.state = passedLogin))
-CTLSPEC A [(client1.state = login & client1.id != client1Id | client1.password != client1Password) U !(client1.state = passedLogin)]
+CTLSPEC A [(client1.state = login & (client1.id != client1Id | client1.password != client1Password)) U !(client1.state = passedLogin)]
 -- Заблокированный клиент в конце концов сможет войти в систему
 CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
 -- Клиент не может снять больше, чем у него есть на счету
