@@ -3,31 +3,31 @@ VAR
     timeSinceCashIncrease : 0..cashIncreaseInterval;
     availableCash : 0..maxAvailableCash;
 DEFINE
-	cashIncreaseInterval := 20; -- regular time period between cash supply events
-    maxAvailableCash := 100; -- you're able assigning any positive figure instead of the current one
-    maxMachineId := 10; -- number of machines to provide ATM-specific service in the bank room (any positive number)
+	cashIncreaseInterval := 20; -- интервал приезда инкассаторов
+    maxAvailableCash := 100; -- максимальное количество денег в банкомате
 ASSIGN
-	-- keep supply timer running
+	-- время с момента последнего приезда инкассаторов
     init(timeSinceCashIncrease) := 0;
 	next(timeSinceCashIncrease) := case
-										timeSinceCashIncrease = cashIncreaseInterval: 0;
-										TRUE: timeSinceCashIncrease + 1;
-								   esac;
+        timeSinceCashIncrease = cashIncreaseInterval: 0;
+        TRUE: timeSinceCashIncrease + 1;
+    esac;
 
-	-- update cash amount once supply event occurred
+	-- обновляем денежную сумму в банкомате после приезда инкассаторов
 	init(availableCash) := initialAmount;
     next(availableCash) := case
-								timeSinceCashIncrease = cashIncreaseInterval & (availableCash + cashIncrease = maxAvailableCash) : maxAvailableCash;
-								timeSinceCashIncrease = cashIncreaseInterval & (availableCash + cashIncrease < maxAvailableCash) : availableCash + cashIncrease;
-								TRUE: availableCash;
-						   esac;
+        timeSinceCashIncrease = cashIncreaseInterval & (availableCash + cashIncrease  >= maxAvailableCash) : maxAvailableCash;
+        timeSinceCashIncrease = cashIncreaseInterval & (availableCash + cashIncrease < maxAvailableCash) : availableCash + cashIncrease;
+        TRUE: availableCash;
+    esac;
 
 MODULE client(atm, clientId, clientPassword, balance, demand)
 VAR
-	state: {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredLimit, receivedCash};
-    loginFailCounter : 0..loginCounterLimit; -- 3 straight failures result in 10 min suspension from attempted login
-	timeSinceSuspension : 0..suspensionTimeLimit; -- 10 min as required
-	cashDemand : 0..demand;	-- whatever positive figure to be an abstract withdraw target
+	state: {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneReturnLimit, receivedCash};
+    loginFailCounter : 0..loginCounterLimit; -- счетчик неудачных попыток авторизации; 3 неудачных попытки приводят к 10-минутной блокировке
+	timeSinceLoginSuspension : 0..suspensionTimeLimit; -- таймер блокировки входа
+    timeSinceWithdrawLimit : 0..suspensionTimeLimit; -- таймер 10-минутного ожидания, если в банкомате недостаточно денег для выдачи
+	cashDemand : 0..demand; -- запрос денег
 DEFINE
     suspensionTimeLimit := 10;
 	loginCounterLimit := 3;
@@ -35,80 +35,109 @@ DEFINE
 	password := 200;
 	maxClientId := 1000;
 ASSIGN
-    -- manage client states to be consistent with his advance/failures throughout the session
+    -- работа с «состоянием» клиента
     init(state) := needForFreeAtm;
 	next(state) := case
-						(state = passedLogin | state = encounteredLimit) & cashDemand <= balance & cashDemand <= 10 & cashDemand < atm.availableCash : receivedCash;
-						(state = passedLogin | state = encounteredLimit) & (cashDemand > balance | cashDemand > 10 | cashDemand > atm.availableCash) : encounteredLimit;
-						state = suspendedFromLogin & timeSinceSuspension = suspensionTimeLimit : login;
-						state = failedToLogin & loginFailCounter = 2 : suspendedFromLogin;
-						state = login & (clientId > maxClientId | id != clientId | password != clientPassword) : failedToLogin;
-						state = login & clientId <= maxClientId & id = clientId & password = clientPassword : passedLogin;
-						clientId <= atm.maxMachineId : login;
-						TRUE : state;
-				   esac;
+	    -- все условия соблюдены — клиент снимает всю сумму
+        state = passedLogin & cashDemand <= balance & cashDemand <= 10 & cashDemand <= atm.availableCash : receivedCash;
+        -- клиент хочет снять больше денег, чем у него есть на счету
+        state = passedLogin & cashDemand > balance : encounteredOwnBalanceLimit;
+        -- в банкомате недостаточно денег, чтобы удовлетворить запрос клиента
+        state = passedLogin & cashDemand > atm.availableCash : encounteredCashStockLimit;
+        -- клиент хочет снять больше 10 рублей за раз
+        state = passedLogin & cashDemand > 10 : encounteredOneReturnLimit;
+        -- клиент не заблокирован и не ждет, но предыдущая попытка снятия денег не была на 100% удачна
+        state = encounteredOwnBalanceLimit | state = encounteredOneReturnLimit : login;
+        -- конец ожидания в случае, если в банкомате не было достаточно наличных
+        state = encounteredCashStockLimit & timeSinceWithdrawLimit = suspensionTimeLimit : login;
+        -- конец блокировки после трех неудачных попыток авторизации
+        state = suspendedFromLogin & timeSinceLoginSuspension = suspensionTimeLimit : login;
+        -- неудачная попытка авторизации (уже было две) — клиент блокируется на 10 минут
+        state = failedToLogin & loginFailCounter = 2 : suspendedFromLogin;
+        -- неудачная попытка авторизации
+        state = login & (clientId > maxClientId | id != clientId | password != clientPassword) : failedToLogin;
+        -- удачная попытка авторизации
+        state = login & clientId <= maxClientId & id = clientId & password = clientPassword : passedLogin;
+        TRUE : state;
+    esac;
 
-    -- update login fail counter if client gets into the trouble
+    -- обновление счетчика неудачных попыток авторизации
 	init(loginFailCounter) := 0;
 	next(loginFailCounter) := case
-								loginFailCounter = loginCounterLimit : 0;
-								TRUE : loginFailCounter + 1;
-							  esac;
+	    -- достигнуто максимальное число неудачных попыток авторизации — обнуляем счетчик
+        loginFailCounter = loginCounterLimit : 0;
+        TRUE : loginFailCounter + 1;
+    esac;
 
-	-- update login suspension timer
-	init(timeSinceSuspension) := 0;
-	next(timeSinceSuspension) := case
-									timeSinceSuspension = suspensionTimeLimit : 0;
-									TRUE : timeSinceSuspension + 1;
-								 esac;
+	-- обновление таймера блокировки после трех неудачных авторизаций
+	init(timeSinceLoginSuspension) := 0;
+	next(timeSinceLoginSuspension) := case
+	    -- 10 минут прошло — обнуляем счетчик
+        timeSinceLoginSuspension = suspensionTimeLimit : 0;
+        TRUE : timeSinceLoginSuspension + 1;
+    esac;
 
-	-- reevalaute demand if client faces issue due to ATM cash shortage, single-time withdraw limit or balance constraints
+	 -- обновление таймера ожидания клиента, если в банкомате не оказалось нужного количества наличных
+	init(timeSinceWithdrawLimit) := 0;
+	next(timeSinceWithdrawLimit) := case
+	    -- 10 минут прошло — обнуляем счетчик
+        timeSinceWithdrawLimit = suspensionTimeLimit : 0;
+        TRUE : timeSinceWithdrawLimit + 1;
+    esac;
+
+	-- корректировка следующего денежного запроса, если клиент сталкивается с:
+	-- нехваткой наличных в банкомате
+	-- единовременным лимитом снятия в 10 рублей
+	-- ограничениями собственного баланса
 	init(cashDemand) := demand;
     next(cashDemand) := case
-							state = passedLogin & cashDemand <= balance & cashDemand <= 10 & cashDemand <= atm.availableCash : 0;
-							state = encounteredLimit & cashDemand > 10 & cashDemand <= balance & cashDemand <= atm.availableCash : cashDemand - 10;
-                            state = encounteredLimit & cashDemand > balance : balance;
-							TRUE : cashDemand;
-					    esac;
+        -- клиент может получить всю сумму за один раз — следующий запрос денег не требуется
+        state = passedLogin & cashDemand <= balance & cashDemand <= 10 & cashDemand <= atm.availableCash : 0;
+        -- максимум, что может снять клиент — все деньги, что есть у него на счету
+        state = encounteredOwnBalanceLimit & cashDemand > balance : balance;
+        -- успешно сняли 10 рублей, в следующий раз нужно снять на 10 рублей меньше
+        state = encounteredOneReturnLimit & cashDemand <= balance & cashDemand > 10 & cashDemand <= atm.availableCash : cashDemand - 10;
+        TRUE : cashDemand;
+    esac;
 
 MODULE main
 VAR
     client1 : client(atm1, client1Id, client1Password, client1Balance, client1Demand);
 	atm1 : atm(1, atm1InitialAmount, atm1CashIncrease);
 DEFINE
-	client1Id := 10; -- leave 10 to verify specs 3, 4, 5, 6 to 'true' outcome (specs 1, 2 to 'false') / set 1 to 9 rather than 10 if any spec should give evidence of 'true' result
-	client1Password := 200; -- otherwise you may edit this password to monitor same consequences as in the case of ID change enforcements
-    client1Balance := 50; -- make sure id = 10, then enable demand value to be one which is greater than balance - so spec 4 will expose the 'true' once process is over
-    client1Demand := 55; -- to find counterexample particularly for spec 4, just set balance to be greater than the demand
-    atm1InitialAmount := 10; -- should be positive value ahead of tool running
-    atm1CashIncrease := 5; -- set id equal 10, then assign any positive value to this line variable - following that spec 6 will come out to 'true' assertion (conversely, leave 0 to have a counterexample for this case)
+	client1Id := 10; -- ID клиента
+	client1Password := 200; -- Пароль клиента
+    client1Balance := 50; -- Количество денег на счету клиента
+    client1Demand := 55; -- Запрос денег клиента
+    atm1InitialAmount := 10; -- Количество денег в банкомате в начальный момент времени
+    atm1CashIncrease := 5; -- Как увеличивается количество денег в банкомате с приездом инкассаторов
 
 -- verify model in CTL style --
 -- Заблокированный клиент не может войти в основное меню
 CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
+CTLSPEC AG (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> client1.state = passedLogin)
 CTLSPEC A [(client1.state = login & client1.id != client1Id | client1.password != client1Password) U (!(client1.state = passedLogin))]
 -- Заблокированный клиент в конце концов сможет войти в систему
 CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
 -- Клиент не может снять больше, чем у него есть на счету
 CTLSPEC !AG (client1Balance < client1Demand -> client1.state = receivedCash)
---Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID.
+-- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
 CTLSPEC !AG (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
--- Клиент, которому не выдали деньги,  в конце концов их получит.
-CTLSPEC AG (client1.state = encounteredLimit -> AF client1.state = receivedCash);
+-- Клиент, которому не выдали деньги, в конце концов их получит
+CTLSPEC AG ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneReturnLimit) -> AF client1.state = receivedCash);
 
 -- verify model in LTL style --
 -- Заблокированный клиент не может войти в основное меню
 LTLSPEC G (client1.state = suspendedFromLogin -> X !(client1.state = passedLogin))
 -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
-LTLSPEC G (client1.state = login & client1.id != client1Id | client1.password != client1Password) U (!(client1.state = passedLogin))
--- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль (событие p никогда не наступит до события q)
-LTLSPEC (F(client1.state = login & client1.id = client1Id & client1.password = client1Password) -> (!(client1.state = passedLogin) U (client1.state = login & client1.id = client1Id & client1.password = client1Password)))
+LTLSPEC G (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> F !(client1.state = passedLogin))
+LTLSPEC F (client1.state = login & client1.id = client1Id & client1.password = client1Password) -> !(client1.state = passedLogin) U (client1.state = login & client1.id = client1Id & client1.password = client1Password)
 -- Заблокированный клиент в конце концов сможет войти в систему
 LTLSPEC F ((client1.state = suspendedFromLogin) -> (client1.state = passedLogin))
 -- Клиент не может снять больше, чем у него есть на счету
 LTLSPEC !G (client1Balance < client1Demand -> client1.state = receivedCash)
---Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID.
-LTLSPEC !G (client1.state = passedLogin xor (client1.state = login | client1.state = failedToLogin))
--- Клиент, которому не выдали деньги,  в конце концов их получит.
-LTLSPEC G F (client1.state = encounteredLimit -> client1.state = receivedCash)
+-- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
+LTLSPEC !G (client1.state = needForFreeAtm -> F client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
+-- Клиент, которому не выдали деньги, в конце концов их получит
+LTLSPEC G ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneReturnLimit) -> F client1.state = receivedCash);
