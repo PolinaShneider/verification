@@ -17,6 +17,9 @@ DEFINE
     client2Demand := 5; -- Запрос денег клиента
     maxAvailableCash := 100; -- максимальное количество денег в банкомате
 
+    -- Дополнительные проверки
+    CTLSPEC AG (atm1.availableCash = atm2.availableCash & atm1.availableCash = bankInstance.availableCash)
+
     -- Заблокированный клиент не может войти в основное меню
     CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
     -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
