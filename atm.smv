@@ -10,7 +10,7 @@ DEFINE
 	client1Id := 0; -- ID клиента
 	client1Password := 123456; -- Пароль клиента
 	client1Balance := 50; -- Количество денег на счету клиента
-    client1Demand := 5; -- Запрос денег клиента
+    client1Demand := 45; -- Запрос денег клиента
 	client2Id := 1; -- ID клиента
 	client2Password := 11111; -- Пароль клиента
 	client2Balance := 0; -- Количество денег на счету клиента
