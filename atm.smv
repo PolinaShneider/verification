@@ -24,7 +24,7 @@ DEFINE
     -- Заблокированный клиент в конце концов сможет войти в систему
     CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
     -- Клиент не может снять больше, чем у него есть на счету
-    CTLSPEC !AG (client2Balance < client2Demand -> client2.state = receivedCash)
+    CTLSPEC !AG (client2.balance < client2.demand -> client2.state = receivedCash)
     -- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
     CTLSPEC !AG (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
     -- Клиент, которому не выдали деньги, в конце концов их получит
@@ -37,7 +37,7 @@ DEFINE
     -- Заблокированный клиент в конце концов сможет войти в систему
     LTLSPEC F ((client1.state = suspendedFromLogin) -> (client1.state = passedLogin))
     -- Клиент не может снять больше, чем у него есть на счету
-    LTLSPEC !G (client2Balance < client2Demand -> client2.state = receivedCash)
+    LTLSPEC !G (client2.balance < client2.demand -> client2.state = receivedCash)
     -- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
     LTLSPEC !G (client1.state = needForFreeAtm -> F client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
     -- Клиент, которому не выдали деньги, в конце концов их получит
