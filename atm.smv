@@ -39,7 +39,7 @@ DEFINE
     -- Клиент не может снять больше, чем у него есть на счету
     LTLSPEC !G (client2.balance < client2.demand -> client2.state = receivedCash)
     -- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
-    LTLSPEC !G (client1.state = needForFreeAtm -> F client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
+    LTLSPEC !G (client1.state = idle -> F client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
     -- Клиент, которому не выдали деньги, в конце концов их получит
     LTLSPEC G ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneTimeLimit) -> F client1.state = receivedCash);
 
@@ -78,7 +78,7 @@ DEFINE
 	maxClientId := 2;          -- максимальный возможный ID клиента
 	oneTimeLimit := 10;        -- единоразовый лимит снятия наличных
 ASSIGN
-    init(client.state) := needForFreeAtm;
+    init(client.state) := idle;
     next(client.state) := case
         -- все условия соблюдены — клиент снимает всю сумму
         client.state = passedLogin & client.cashDemand <= client.balance & client.cashDemand <= oneTimeLimit & client.cashDemand <= availableCash : receivedCash;
@@ -144,7 +144,7 @@ ASSIGN
 -- Модуль клиента
 MODULE client(id, password, balance, demand)
 VAR
-  state: {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneTimeLimit, receivedCash};
+  state: {idle, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneTimeLimit, receivedCash};
   loginFailCounter : 0..loginCounterLimit; -- счетчик неудачных попыток авторизации; 3 неудачных попытки приводят к 10-минутной блокировке
   timeSinceLoginSuspension : 0..suspensionTimeLimit; -- таймер блокировки входа
   timeSinceWithdrawLimit : 0..suspensionTimeLimit; -- таймер 10-минутного ожидания, если в банкомате недостаточно денег для выдачи
