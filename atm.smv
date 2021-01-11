@@ -65,6 +65,7 @@ ASSIGN
     -- Клиент, которому не выдали деньги, в конце концов их получит
     LTLSPEC G ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneReturnLimit) -> F client1.state = receivedCash);
 
+-- Модуль терминала
 MODULE atm(client, clientId, clientPassword, availableCash)
 DEFINE
     suspensionTimeLimit := 10;
@@ -134,6 +135,7 @@ ASSIGN
         TRUE : client.cashDemand;
     esac;
 
+-- Модуль клиента
 MODULE client(id, password, balance, demand)
 VAR
   state: {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneReturnLimit, receivedCash};
