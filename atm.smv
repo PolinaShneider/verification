@@ -2,9 +2,10 @@ MODULE main
 VAR
   client1: client (client1Id, client1Password, client1Balance, client1Demand);
   client2: client (client2Id, client2Password, client2Balance, client2Demand);
-  atm1: atm(client1, client1Id, client1Password);
-  atm2: atm(client2, client2Id, client2Password);
-  bankInstance: bank(atm1, atm2);
+  atm1: atm(client1, client1Id, client1Password, availableCash);
+  atm2: atm(client2, client2Id, client2Password, availableCash);
+  bankInstance: bank(atm1, atm2, availableCash);
+  availableCash: 0..maxAvailableCash;
 DEFINE
 	client1Id := 0; -- ID клиента
 	client1Password := 123456; -- Пароль клиента
@@ -14,12 +15,12 @@ DEFINE
 	client2Password := 11111; -- Пароль клиента
 	client2Balance := 0; -- Количество денег на счету клиента
     client2Demand := 5; -- Запрос денег клиента
+    maxAvailableCash := 100; -- максимальное количество денег в банкомате
 
     -- Заблокированный клиент не может войти в основное меню
-    CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin) & client2.state = suspendedFromLogin -> AX !(client2.state = passedLogin))
+    CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
     -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
     CTLSPEC AG (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> !(client1.state = passedLogin))
-    CTLSPEC !A [(client1.state = login & (client1.id != client1Id | client1.password != client1Password)) U client1.state = passedLogin]
     -- Заблокированный клиент в конце концов сможет войти в систему
     CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
     -- Клиент не может снять больше, чем у него есть на счету
@@ -33,7 +34,6 @@ DEFINE
     LTLSPEC G (client1.state = suspendedFromLogin -> X !(client1.state = passedLogin))
     -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
     LTLSPEC G (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> F !(client1.state = passedLogin))
-    LTLSPEC F (client1.state = login & client1.id = client1Id & client1.password = client1Password) -> !(client1.state = passedLogin) U (client1.state = login & client1.id = client1Id & client1.password = client1Password)
     -- Заблокированный клиент в конце концов сможет войти в систему
     LTLSPEC F ((client1.state = suspendedFromLogin) -> (client1.state = passedLogin))
     -- Клиент не может снять больше, чем у него есть на счету
@@ -44,18 +44,15 @@ DEFINE
     LTLSPEC G ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneTimeLimit) -> F client1.state = receivedCash);
 
 -- Модуль банкомата
-MODULE bank(atm1, atm2)
+MODULE bank(atm1, atm2, availableCash)
 VAR
     timeSinceCashIncrease : 0..cashIncreaseInterval;
-    availableCash : 0..maxAvailableCash;
 DEFINE
-    maxAvailableCash := 100; -- максимальное количество денег в банкомате
     cashIncreaseInterval := 20; -- интервал приезда инкассаторов
     cashIncrease := 5; -- Как увеличивается количество денег в банкомате с приездом инкассаторов
+    maxAvailableCash := 100; -- максимальное количество денег в банкомате
 ASSIGN
   init (availableCash) := 10; -- количество доступных денег в банкомате
-  init(atm1.availableCash) := availableCash; -- количество доступных денег в терминале
-  init(atm2.availableCash) := availableCash; -- количество доступных денег в терминале
   init (timeSinceCashIncrease) := 0; -- время с момента приезда инкассаторов
 
   -- обновляем денежную сумму в банкомате
@@ -67,21 +64,18 @@ ASSIGN
         TRUE : availableCash;
       esac;
 
-    -- время с момента последнего приезда инкассаторов
+  -- время с момента последнего приезда инкассаторов
   next(timeSinceCashIncrease) := case
-        timeSinceCashIncrease = cashIncreaseInterval: 0;
-        TRUE: timeSinceCashIncrease + 1;
-    esac;
+    timeSinceCashIncrease = cashIncreaseInterval: 0;
+    TRUE: timeSinceCashIncrease + 1;
+  esac;
 
 -- Модуль терминала
-MODULE atm(client, clientId, clientPassword)
-VAR
-    availableCash : 0..maxAvailableCash;
+MODULE atm(client, clientId, clientPassword, availableCash)
 DEFINE
     suspensionTimeLimit := 10; -- время ожидания / блокировки клиента
 	loginCounterLimit := 3;    -- количество попыток входа
 	maxClientId := 2;          -- максимальный возможный ID клиента
-	maxAvailableCash := 100;   -- максимальное количество денег в банкомате
 	oneTimeLimit := 10;        -- единоразовый лимит снятия наличных
 ASSIGN
     init(client.state) := needForFreeAtm;
