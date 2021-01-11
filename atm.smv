@@ -1,41 +1,19 @@
 MODULE main
 VAR
-  timeSinceCashIncrease : 0..cashIncreaseInterval;
-  availableCash : 0..maxAvailableCash;
   client1: client (client1Id, client1Password, client1Balance, client1Demand);
   client2: client (client2Id, client2Password, client2Balance, client2Demand);
-  atm1: atm(client1, availableCash, client1Id, client1Password);
-  atm2: atm(client2, availableCash, client2Id, client2Password);
+  atm1: atm(client1, client1Id, client1Password);
+  atm2: atm(client2, client2Id, client2Password);
+  bankInstance: bank(atm1, atm2);
 DEFINE
 	client1Id := 0; -- ID клиента
 	client1Password := 123456; -- Пароль клиента
 	client1Balance := 50; -- Количество денег на счету клиента
     client1Demand := 5; -- Запрос денег клиента
 	client2Id := 1; -- ID клиента
-	client2Password := 112345; -- Пароль клиента
+	client2Password := 11111; -- Пароль клиента
 	client2Balance := 0; -- Количество денег на счету клиента
     client2Demand := 5; -- Запрос денег клиента
-    maxAvailableCash := 100; -- максимальное количество денег в банкомате
-    cashIncreaseInterval := 20; -- интервал приезда инкассаторов
-    cashIncrease := 5; -- Как увеличивается количество денег в банкомате с приездом инкассаторов
-ASSIGN
-  init (availableCash) := 10;
-  init (timeSinceCashIncrease) := 0;
-
-  -- обновляем денежную сумму в банкомате
-  next(availableCash) :=
-      case
-        timeSinceCashIncrease = 0 & availableCash + cashIncrease <= maxAvailableCash : availableCash + cashIncrease;
-        atm1.client.state = receivedCash & availableCash >= atm1.client.demand : availableCash - atm1.client.demand;
-        atm2.client.state = receivedCash & availableCash >= atm2.client.demand : availableCash - atm2.client.demand;
-        TRUE : availableCash;
-      esac;
-
-    -- время с момента последнего приезда инкассаторов
-    next(timeSinceCashIncrease) := case
-        timeSinceCashIncrease = cashIncreaseInterval: 0;
-        TRUE: timeSinceCashIncrease + 1;
-    esac;
 
     -- Заблокированный клиент не может войти в основное меню
     CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin) & client2.state = suspendedFromLogin -> AX !(client2.state = passedLogin))
@@ -49,7 +27,7 @@ ASSIGN
     -- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
     CTLSPEC !AG (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
     -- Клиент, которому не выдали деньги, в конце концов их получит
-    CTLSPEC AG ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneReturnLimit) -> AF client1.state = receivedCash);
+    CTLSPEC AG ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneTimeLimit) -> AF client1.state = receivedCash);
 
     -- Заблокированный клиент не может войти в основное меню
     LTLSPEC G (client1.state = suspendedFromLogin -> X !(client1.state = passedLogin))
@@ -63,27 +41,61 @@ ASSIGN
     -- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
     LTLSPEC !G (client1.state = needForFreeAtm -> F client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
     -- Клиент, которому не выдали деньги, в конце концов их получит
-    LTLSPEC G ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneReturnLimit) -> F client1.state = receivedCash);
+    LTLSPEC G ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneTimeLimit) -> F client1.state = receivedCash);
+
+-- Модуль банкомата
+MODULE bank(atm1, atm2)
+VAR
+    timeSinceCashIncrease : 0..cashIncreaseInterval;
+    availableCash : 0..maxAvailableCash;
+DEFINE
+    maxAvailableCash := 100; -- максимальное количество денег в банкомате
+    cashIncreaseInterval := 20; -- интервал приезда инкассаторов
+    cashIncrease := 5; -- Как увеличивается количество денег в банкомате с приездом инкассаторов
+ASSIGN
+  init (availableCash) := 10; -- количество доступных денег в банкомате
+  init(atm1.availableCash) := availableCash; -- количество доступных денег в терминале
+  init(atm2.availableCash) := availableCash; -- количество доступных денег в терминале
+  init (timeSinceCashIncrease) := 0; -- время с момента приезда инкассаторов
+
+  -- обновляем денежную сумму в банкомате
+  next(availableCash) :=
+      case
+        timeSinceCashIncrease = 0 & availableCash + cashIncrease <= maxAvailableCash : availableCash + cashIncrease;
+        atm1.client.state = receivedCash & availableCash >= atm1.client.demand : availableCash - atm1.client.demand;
+        atm2.client.state = receivedCash & availableCash >= atm2.client.demand : availableCash - atm2.client.demand;
+        TRUE : availableCash;
+      esac;
+
+    -- время с момента последнего приезда инкассаторов
+  next(timeSinceCashIncrease) := case
+        timeSinceCashIncrease = cashIncreaseInterval: 0;
+        TRUE: timeSinceCashIncrease + 1;
+    esac;
 
 -- Модуль терминала
-MODULE atm(client, clientId, clientPassword, availableCash)
+MODULE atm(client, clientId, clientPassword)
+VAR
+    availableCash : 0..maxAvailableCash;
 DEFINE
-    suspensionTimeLimit := 10;
-	loginCounterLimit := 3;
-	maxClientId := 2;
+    suspensionTimeLimit := 10; -- время ожидания / блокировки клиента
+	loginCounterLimit := 3;    -- количество попыток входа
+	maxClientId := 2;          -- максимальный возможный ID клиента
+	maxAvailableCash := 100;   -- максимальное количество денег в банкомате
+	oneTimeLimit := 10;        -- единоразовый лимит снятия наличных
 ASSIGN
     init(client.state) := needForFreeAtm;
     next(client.state) := case
         -- все условия соблюдены — клиент снимает всю сумму
-        client.state = passedLogin & client.cashDemand <= client.balance & client.cashDemand <= 10 & client.cashDemand <= availableCash : receivedCash;
+        client.state = passedLogin & client.cashDemand <= client.balance & client.cashDemand <= oneTimeLimit & client.cashDemand <= availableCash : receivedCash;
         -- клиент хочет снять больше денег, чем у него есть на счету
         client.state = passedLogin & client.cashDemand > client.balance : encounteredOwnBalanceLimit;
         -- в банкомате недостаточно денег, чтобы удовлетворить запрос клиента
         client.state = passedLogin & client.cashDemand > availableCash : encounteredCashStockLimit;
         -- клиент хочет снять больше 10 рублей за раз
-        client.state = passedLogin & client.cashDemand > 10 : encounteredOneReturnLimit;
+        client.state = passedLogin & client.cashDemand > oneTimeLimit : encounteredOneTimeLimit;
         -- клиент не заблокирован и не ждет, но предыдущая попытка снятия денег не была на 100% удачна
-        client.state = encounteredOwnBalanceLimit | client.state = encounteredOneReturnLimit : login;
+        client.state = encounteredOwnBalanceLimit | client.state = encounteredOneTimeLimit : login;
         -- конец ожидания в случае, если в банкомате не было достаточно наличных
         client.state = encounteredCashStockLimit & client.timeSinceWithdrawLimit = suspensionTimeLimit : login;
         -- конец блокировки после трех неудачных попыток авторизации
@@ -113,7 +125,7 @@ ASSIGN
         TRUE : client.timeSinceLoginSuspension + 1;
     esac;
 
-     -- обновление таймера ожидания клиента, если в банкомате не оказалось нужного количества наличных
+    -- обновление таймера ожидания клиента, если в банкомате не оказалось нужного количества наличных
     init(client.timeSinceWithdrawLimit) := 0;
     next(client.timeSinceWithdrawLimit) := case
         -- 10 минут прошло — обнуляем счетчик
@@ -127,18 +139,18 @@ ASSIGN
     -- ограничениями собственного баланса
     next(client.cashDemand) := case
         -- клиент может получить всю сумму за один раз — следующий запрос денег не требуется
-        client.state = passedLogin & client.cashDemand <= client.balance & client.cashDemand <= 10 & client.cashDemand <= availableCash : 0;
+        client.state = passedLogin & client.cashDemand <= client.balance & client.cashDemand <= oneTimeLimit & client.cashDemand <= availableCash : 0;
         -- максимум, что может снять клиент — все деньги, что есть у него на счету
         client.state = encounteredOwnBalanceLimit & client.cashDemand > client.balance : client.balance;
         -- успешно сняли 10 рублей, в следующий раз нужно снять на 10 рублей меньше
-        client.state = encounteredOneReturnLimit & client.cashDemand <= client.balance & client.cashDemand > 10 & client.cashDemand <= availableCash : client.cashDemand - 10;
+        client.state = encounteredOneTimeLimit & client.cashDemand <= client.balance & client.cashDemand > oneTimeLimit & client.cashDemand <= availableCash : client.cashDemand - oneTimeLimit;
         TRUE : client.cashDemand;
     esac;
 
 -- Модуль клиента
 MODULE client(id, password, balance, demand)
 VAR
-  state: {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneReturnLimit, receivedCash};
+  state: {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneTimeLimit, receivedCash};
   loginFailCounter : 0..loginCounterLimit; -- счетчик неудачных попыток авторизации; 3 неудачных попытки приводят к 10-минутной блокировке
   timeSinceLoginSuspension : 0..suspensionTimeLimit; -- таймер блокировки входа
   timeSinceWithdrawLimit : 0..suspensionTimeLimit; -- таймер 10-минутного ожидания, если в банкомате недостаточно денег для выдачи
