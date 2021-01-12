@@ -1,0 +1,262 @@
+MODULE atm(machineId, startCash, cashIncrease)
+VAR
+    timeSinceCashIncrease : 0..cashIncreaseInterval;
+    availableCash : 0..maxAvailableCash;
+DEFINE
+	cashIncreaseInterval := 20; -- regular time period between cash supply events
+    maxAvailableCash := 100; -- you're able assigning any positive figure instead of the current one
+    maxMachineId := 2; -- number of machines to provide ATM-specific service in the bank room (any positive number)
+ASSIGN
+	-- keep supply timer running
+    init(timeSinceCashIncrease) := 0;
+	next(timeSinceCashIncrease) := case
+                                    timeSinceCashIncrease = cashIncreaseInterval: 0;
+                                    TRUE: timeSinceCashIncrease + 1;
+                               esac;
+
+	-- update cash amount once supply event occurred
+	init(availableCash) := startCash;
+    next(availableCash) := case
+								timeSinceCashIncrease = cashIncreaseInterval & (availableCash + cashIncrease = maxAvailableCash) : maxAvailableCash;
+								timeSinceCashIncrease = cashIncreaseInterval & (availableCash + cashIncrease < maxAvailableCash) : availableCash + cashIncrease;
+								TRUE: availableCash;
+						   esac;
+
+MODULE main
+VAR
+	atm1 : atm(1, atm1StartCash, atm1CashIncrease);
+	atm2 : atm(2, atm2StartCash, atm2CashIncrease);
+
+	atm1State : {free, busy};
+    atm2State : {free, busy};
+	client1State : {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneReturnLimit, receivedCash};
+    client2State : {needForFreeAtm, login, failedToLogin, passedLogin, suspendedFromLogin, encounteredCashStockLimit, encounteredOwnBalanceLimit, encounteredOneReturnLimit, receivedCash};
+
+    client1Atm1 : boolean;
+	client1Atm2 : boolean;
+	client2Atm1 : boolean;
+	client2Atm2 : boolean;
+
+	loginFailCounter1 : 0..loginCounterLimit;
+	loginFailCounter2 : 0..loginCounterLimit;
+
+	timeSinceLoginSuspension1 : 0..suspensionTimeLimit; -- 10 min login suspension period
+    timeSinceLoginSuspension2 : 0..suspensionTimeLimit; -- 10 min login suspension period
+
+	timeSinceWithdrawLimit1 : 0..suspensionTimeLimit; -- 10 min break if cash shortage encountered
+	timeSinceWithdrawLimit2 : 0..suspensionTimeLimit; -- 10 min break if cash shortage encountered
+
+	cashDemand1 : 0..client1Demand;
+	cashDemand2 : 0..client2Demand;
+DEFINE
+	suspensionTimeLimit := 10;
+	loginCounterLimit := 3;
+	maxClientId := 2;
+
+	client1TrueId := 1;
+	client1TriedId := 1;
+	client1Balance := 50;
+    client1Demand := 55;
+
+	client2TrueId := 2;
+	client2TriedId := 2;
+	client2Balance := 70;
+	client2Demand := 60;
+
+	atm1StartCash := 10;
+    atm1CashIncrease := 0; -- set atm1CashIncrease and atm2CashIncrease (BOTH) to receive a counterexample for spec 6
+
+    atm2StartCash := 10;
+	atm2CashIncrease := 1;
+ASSIGN
+------------- atm1' state computing -------------
+	init(atm1State) := free;
+    next(atm1State) := case
+							client1Atm1 | client2Atm1 : busy;
+							TRUE : free;
+					   esac;
+
+------------- atm2' state computing -------------
+	init(atm2State) := free;
+    next(atm2State) := case
+							client1Atm2 | client2Atm2 : busy;
+							TRUE : free;
+					   esac;
+
+------------- client1' state and parameter computing -------------
+	init(client1State) := needForFreeAtm;
+	next(client1State) := case
+							(client1State = passedLogin | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+									& cashDemand1 <= client1Balance & cashDemand1 <= 10 & client1Atm1 & cashDemand1 <= atm1.availableCash : receivedCash;
+							(client1State = passedLogin | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+									& cashDemand1 <= client1Balance & cashDemand1 <= 10 & client1Atm2 & cashDemand1 <= atm2.availableCash : receivedCash;
+							(client1State = passedLogin | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+									& cashDemand1 > client1Balance : encounteredOwnBalanceLimit;
+							(client1State = passedLogin | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+									& client1Atm1 & cashDemand1 > atm1.availableCash : encounteredCashStockLimit;
+							(client1State = passedLogin | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+									& client1Atm2 & cashDemand1 > atm2.availableCash : encounteredCashStockLimit;
+							(client1State = passedLogin | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+									& cashDemand1 > 10 : encounteredOneReturnLimit;
+							client1State = login & (client1TriedId > maxClientId | client1TriedId = client2TrueId | client1TriedId != client1TrueId) : failedToLogin;
+							client1State = encounteredCashStockLimit & timeSinceWithdrawLimit1 = suspensionTimeLimit : needForFreeAtm;
+							client1State = suspendedFromLogin & timeSinceLoginSuspension1 = suspensionTimeLimit : needForFreeAtm;
+							client1State = failedToLogin & loginFailCounter1 = 2 : suspendedFromLogin;
+							client1State = login & client1TriedId <= maxClientId & client1TriedId = client1TrueId : passedLogin;
+							client1State = needForFreeAtm & (atm1State = free | atm2State = free) : login;
+							TRUE : client1State;
+						  esac;
+
+	init(client1Atm1) := FALSE;
+    next(client1Atm1) := case
+							client1State = needForFreeAtm & atm1State = free : TRUE;
+							client1State = encounteredCashStockLimit | client1State = suspendedFromLogin | client1State = receivedCash : FALSE;
+							TRUE : client1Atm1;
+						 esac;
+
+	init(client1Atm2) := FALSE;
+    next(client1Atm2) := case
+							client1State = needForFreeAtm & atm1State = busy & atm2State = free : TRUE;
+							client1State = encounteredCashStockLimit | client1State = suspendedFromLogin | client1State = receivedCash : FALSE;
+							TRUE : client1Atm2;
+						 esac;
+
+	-- update login fail counter if client gets into the trouble
+	init(loginFailCounter1) := 0;
+	next(loginFailCounter1) := case
+									loginFailCounter1 = loginCounterLimit : 0;
+									TRUE : loginFailCounter1 + 1;
+      						   esac;
+
+	-- update login suspension timer
+	init(timeSinceLoginSuspension1) := 0;
+	next(timeSinceLoginSuspension1) := case
+											timeSinceLoginSuspension1 = suspensionTimeLimit : 0;
+											TRUE : timeSinceLoginSuspension1 + 1;
+									   esac;
+
+	 -- update withdraw break counter if cash stock doesn't meet the person's demand yet
+	init(timeSinceWithdrawLimit1) := 0;
+	next(timeSinceWithdrawLimit1) := case
+										timeSinceWithdrawLimit1 = suspensionTimeLimit : 0;
+										TRUE : timeSinceWithdrawLimit1 + 1;
+								     esac;
+
+	-- reevalaute demand if client faces issue due to ATM cash shortage, single-time withdraw limit or balance constraints
+	init(cashDemand1) := client1Demand;
+    next(cashDemand1) := case
+							client1State = passedLogin & cashDemand1 <= client1Balance & cashDemand1 <= 10 & client1Atm1 & cashDemand1 <= atm1.availableCash : 0;
+							client1State = passedLogin & cashDemand1 <= client1Balance & cashDemand1 <= 10 & client1Atm2 & cashDemand1 <= atm2.availableCash : 0;
+							client1State = encounteredOwnBalanceLimit & cashDemand1 > client1Balance : client1Balance;
+							client1State = encounteredOneReturnLimit & cashDemand1 <= client1Balance & cashDemand1 > 10 & client1Atm1 & cashDemand1 <= atm1.availableCash : cashDemand1 - 10;
+							client1State = encounteredOneReturnLimit & cashDemand1 <= client1Balance & cashDemand1 > 10 & client1Atm2 & cashDemand1 <= atm2.availableCash : cashDemand1 - 10;
+							TRUE : cashDemand1;
+					     esac;
+
+
+
+------------- client2' state and parameter computing -------------
+	init(client2State) := needForFreeAtm;
+	next(client2State) := case
+							(client2State = passedLogin | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+									& cashDemand2 <= client2Balance & cashDemand2 <= 10 & client2Atm1 & cashDemand2 <= atm1.availableCash : receivedCash;
+							(client2State = passedLogin | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+									& cashDemand2 <= client2Balance & cashDemand2 <= 10 & client2Atm2 & cashDemand2 <= atm2.availableCash : receivedCash;
+							(client2State = passedLogin | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+									& cashDemand2 > client2Balance : encounteredOwnBalanceLimit;
+							(client2State = passedLogin | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+									& client2Atm1 & cashDemand2 > atm1.availableCash : encounteredCashStockLimit;
+							(client2State = passedLogin | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+									& client2Atm2 & cashDemand2 > atm2.availableCash : encounteredCashStockLimit;
+							(client2State = passedLogin | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+									& cashDemand2 > 10 : encounteredOneReturnLimit;
+							client2State = login & (client2TriedId > maxClientId | client2TriedId = client1TrueId | client2TriedId != client2TrueId) : failedToLogin;
+							client2State = encounteredCashStockLimit & timeSinceWithdrawLimit2 = suspensionTimeLimit : needForFreeAtm;
+							client2State = suspendedFromLogin & timeSinceLoginSuspension2 = suspensionTimeLimit : needForFreeAtm;
+							client2State = failedToLogin & loginFailCounter2 = 2 : suspendedFromLogin;
+							client2State = login & client2TriedId <= maxClientId & client2TriedId = client2TrueId : passedLogin;
+							client2State = needForFreeAtm & (atm1State = free | atm2State = free) : login;
+							TRUE : client2State;
+						  esac;
+
+	init(client2Atm1) := FALSE;
+    next(client2Atm1) := case
+							client2State = needForFreeAtm & atm1State = free & client1State != needForFreeAtm : TRUE;
+							client2State = encounteredCashStockLimit | client2State = suspendedFromLogin | client2State = receivedCash : FALSE;
+							TRUE : client2Atm1;
+						 esac;
+
+	init(client2Atm2) := FALSE;
+    next(client2Atm2) := case
+							client2State = needForFreeAtm & atm1State = busy & atm2State = free : TRUE;
+							client2State = needForFreeAtm & atm1State = free & client1State = needForFreeAtm & atm2State = free : TRUE;
+							client2State = encounteredCashStockLimit | client2State = suspendedFromLogin | client2State = receivedCash : FALSE;
+							TRUE : client2Atm2;
+						 esac;
+
+	-- update login fail counter if client gets into the trouble
+	init(loginFailCounter2) := 0;
+	next(loginFailCounter2) := case
+									loginFailCounter2 = loginCounterLimit : 0;
+									TRUE : loginFailCounter2 + 1;
+      						   esac;
+
+	-- update login suspension timer
+	init(timeSinceLoginSuspension2) := 0;
+	next(timeSinceLoginSuspension2) := case
+											timeSinceLoginSuspension2 = suspensionTimeLimit : 0;
+											TRUE : timeSinceLoginSuspension2 + 1;
+									   esac;
+
+	 -- update withdraw break counter if cash stock doesn't meet the person's demand yet
+	init(timeSinceWithdrawLimit2) := 0;
+	next(timeSinceWithdrawLimit2) := case
+										timeSinceWithdrawLimit2 = suspensionTimeLimit : 0;
+										TRUE : timeSinceWithdrawLimit2 + 1;
+								     esac;
+
+	-- reevalaute demand if client faces issue due to ATM cash shortage, single-time withdraw limit or balance constraints
+	init(cashDemand2) := client2Demand;
+    next(cashDemand2) := case
+							client2State = passedLogin & cashDemand2 <= client2Balance & cashDemand2 <= 10 & client2Atm1 & cashDemand2 <= atm1.availableCash : 0;
+							client2State = passedLogin & cashDemand2 <= client2Balance & cashDemand2 <= 10 & client2Atm2 & cashDemand2 <= atm2.availableCash : 0;
+							client2State = encounteredOwnBalanceLimit & cashDemand2 > client2Balance : client2Balance;
+							client2State = encounteredOneReturnLimit & cashDemand2 <= client2Balance & cashDemand2 > 10 & client2Atm1 & cashDemand2 <= atm1.availableCash : cashDemand2 - 10;
+							client2State = encounteredOneReturnLimit & cashDemand2 <= client2Balance & cashDemand2 > 10 & client2Atm2 & cashDemand2 <= atm2.availableCash : cashDemand2 - 10;
+							TRUE : cashDemand2;
+					     esac;
+SPEC !AG (
+	(client2State = suspendedFromLogin -> AX client2State = passedLogin)
+	& (client2State = suspendedFromLogin -> AX client2State = passedLogin)
+);
+
+SPEC !AG (
+	((client1State = login | client1State = failedToLogin) & client1TriedId != client1TrueId -> AF client1State = passedLogin)
+	& ((client2State = login | client2State = failedToLogin) & client2TriedId != client2TrueId -> AF client2State = passedLogin)
+);
+
+SPEC (
+	(client1State = suspendedFromLogin -> AF client1State = passedLogin)
+	& (client2State = suspendedFromLogin -> AF client2State = passedLogin)
+);
+
+SPEC !AG (
+	(client1Balance < client1Demand -> client1State = receivedCash)
+	& (client2Balance < client2Demand -> client2State = receivedCash)
+);
+
+SPEC !AG (
+	((client1State = passedLogin | client1State = encounteredOneReturnLimit | client1State = encounteredOwnBalanceLimit)
+	& client2TriedId = client1TrueId -> AF client2State = passedLogin)
+	&
+	((client2State = passedLogin | client2State = encounteredOneReturnLimit | client2State = encounteredOwnBalanceLimit)
+	& client1TriedId = client2TrueId -> AF client1State = passedLogin)
+);
+
+SPEC AG (
+	((client1State = encounteredCashStockLimit | client1State = encounteredOwnBalanceLimit | client1State = encounteredOneReturnLimit)
+	-> AF client1State = receivedCash)
+	&
+	((client2State = encounteredCashStockLimit | client2State = encounteredOwnBalanceLimit | client2State = encounteredOneReturnLimit)
+	-> AF client2State = receivedCash)
+)
