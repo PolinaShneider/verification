@@ -17,21 +17,28 @@ DEFINE
     client2Demand := 5; -- Запрос денег клиента
     maxAvailableCash := 100; -- максимальное количество денег в банкомате
 
-    -- Дополнительные проверки
-    CTLSPEC AG (atm1.availableCash = atm2.availableCash & atm1.availableCash = bankInstance.availableCash)
-
     -- Заблокированный клиент не может войти в основное меню
-    CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin))
+    CTLSPEC AG (client1.state = suspendedFromLogin -> AX !(client1.state = passedLogin) & client2.state = suspendedFromLogin -> AX !(client2.state = passedLogin))
     -- Невозможно войти в основное меню, не введя правильную комбинацию ID-пароль
-    CTLSPEC AG (client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> !(client1.state = passedLogin))
+    CTLSPEC AG (
+        client1.state = login & (client1.id != client1Id | client1.password != client1Password) -> !(client1.state = passedLogin) &
+        client2.state = login & (client2.id != client2Id | client2.password != client2Password) -> !(client2.state = passedLogin)
+    )
     -- Заблокированный клиент в конце концов сможет войти в систему
-    CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin)
+    CTLSPEC AF (client1.state = suspendedFromLogin -> client1.state = passedLogin & client2.state = suspendedFromLogin -> client2.state = passedLogin)
     -- Клиент не может снять больше, чем у него есть на счету
-    CTLSPEC !AG (client2.balance < client2.demand -> client2.state = receivedCash)
+    CTLSPEC !A [(client1.balance < client1.demand) U client1.state = receivedCash]
+    CTLSPEC !A [(client2.balance < client2.demand) U client2.state = receivedCash]
     -- Одновременно в банкомат может успешно войти только один клиент с одинаковыми ID
-    CTLSPEC !AG (client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin))
+    CTLSPEC !AG (
+        client1.state = passedLogin & (client1.state = login | client1.state = failedToLogin) &
+        client2.state = passedLogin & (client2.state = login | client2.state = failedToLogin)
+    )
     -- Клиент, которому не выдали деньги, в конце концов их получит
-    CTLSPEC AG ((client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneTimeLimit) -> AF client1.state = receivedCash);
+    CTLSPEC AG (
+        (client1.state = encounteredCashStockLimit | client1.state = encounteredOwnBalanceLimit | client1.state = encounteredOneTimeLimit) -> AF client1.state = receivedCash &
+        (client2.state = encounteredCashStockLimit | client2.state = encounteredOwnBalanceLimit | client2.state = encounteredOneTimeLimit) -> AF client2.state = receivedCash
+    );
 
     -- Заблокированный клиент не может войти в основное меню
     LTLSPEC G (client1.state = suspendedFromLogin -> X !(client1.state = passedLogin))

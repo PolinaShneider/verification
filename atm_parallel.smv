@@ -67,7 +67,7 @@ DEFINE
     atm1CashIncrease := 5; -- set atm1CashIncrease and atm2CashIncrease (BOTH) to receive a counterexample for spec 6
 
     atm2StartCash := 10;
-	atm2CashIncrease := 1;
+	atm2CashIncrease := 5;
 ASSIGN
 ------------- atm1' state computing -------------
 	init(atm1State) := free;
